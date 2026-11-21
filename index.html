@@ -216,17 +216,12 @@ button.on{background:rgba(255,255,255,.5);color:#000}
   }
   /* ---- голос: "лампа on/off", "лампа вимкни/увімкни" ---- */
   function parseCmd(t) {
-    t = t.toLowerCase();
-    if (t.indexOf('ламп') < 0 && t.indexOf('lamp') < 0) return null;
-    var w = t.replace(/[.,!?]/g, ' ').split(/\s+/), i, x;
-    var has = function (p) { for (i = 0; i < w.length; i++) { if (w[i].indexOf(p) === 0) return true; } return false; };
-    var eq = function (p) { return w.indexOf(p) >= 0; };
-    if (eq('off') || eq('оф') || eq('офф') || has('вимк') || has('вимик') || has('згас') || has('гаси') || has('погас')) return 'off';
-    if (eq('on') || eq('он') || has('увімк') || has('ввімк') || has('вімк') || has('вмик') || has('ввімкн') || has('засвіт')) return 'on';
-    if (has('яскравіш')) return 'up';
-    if (has('тьмяніш') || has('темніш')) return 'down';
-    if (has('тепліш')) return 'warm';
-    if (has('холодніш')) return 'cold';
+    var w = t.toLowerCase().replace(/[.,!?]/g, ' ').split(/\s+/);
+    for (var i = w.length - 1; i >= 0; i--) {
+      var x = w[i];
+      if (x === 'off' || x === 'оф' || x === 'офф' || x === 'of') return 'off';
+      if (x === 'on' || x === 'он' || x === 'он') return 'on';
+    }
     return null;
   }
   var rec = null, vcWant = false, lastCmd = 0;
