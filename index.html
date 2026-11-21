@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Лампа</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font:16px/1.3 sans-serif;color:#fff;-webkit-user-select:none;user-select:none}
+#bg,#dim,#clock{position:fixed;left:0;top:0;width:100%;height:100%}
+#dim{background:#000;pointer-events:none}
+#off{position:fixed;left:0;top:0;width:100%;height:100%;background:#000;display:none;z-index:4}
+#lv{height:6px;border-radius:3px;background:rgba(255,255,255,.15);overflow:hidden}
+#lvb{height:100%;width:0;background:#7fe08a}
+#clock{display:none;align-items:center;justify-content:center;pointer-events:none;font-weight:200;letter-spacing:.04em;font-variant-numeric:tabular-nums}
+#panel{position:fixed;left:0;right:0;bottom:0;padding:16px 16px 26px;background:rgba(0,0,0,.6);transition:opacity .4s;display:flex;flex-direction:column;gap:12px;z-index:5}
+#panel.hide{opacity:0;pointer-events:none}
+label{display:flex;justify-content:space-between;font-size:14px;opacity:.9}
+input[type=range]{width:100%;height:30px}
+#t{background:linear-gradient(90deg,#ff8a1e,#ffd9a8,#fff,#cfe2ff,#9cc2ff);-webkit-appearance:none;appearance:none;border-radius:8px;height:14px}
+#b{-webkit-appearance:none;appearance:none;border-radius:8px;height:14px;background:linear-gradient(90deg,#222,#fff)}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:30px;height:30px;border-radius:50%;background:#fff;border:2px solid #333}
+.row{display:flex;gap:6px}
+button{flex:1;padding:11px 2px;border:0;border-radius:10px;background:rgba(255,255,255,.16);color:#fff;font-size:13px}
+button.on{background:rgba(255,255,255,.5);color:#000}
+#tw.off{opacity:.35}
+</style>
+</head>
+<body>
+<div id="bg"></div>
+<div id="dim"></div>
+<div id="clock"></div>
+<div id="off"></div>
+<div id="panel">
+  <div id="tw">
+    <label><span>Тон світла (біле)</span><span id="tv"></span></label>
+    <input id="t" type="range" min="1500" max="6500" step="50">
+  </div>
+  <label><span>Яскравість</span><span id="bv"></span></label>
+  <input id="b" type="range" min="1" max="100" step="1">
+  <div class="row" id="modes">
+    <button data-m="white">Біле</button>
+    <button data-m="pastel">Пастель</button>
+    <button data-m="sunset">Захід</button>
+    <button data-m="aurora">Сяйво</button>
+  </div>
+  <div class="row">
+    <button id="fl">Живий вогонь</button>
+    <button id="ck">Годинник</button>
+    <button id="cl">Хлопок</button>
+  </div>
+  <div id="cw">
+    <label><span>Чутливість хлопка</span><span id="snv"></span></label>
+    <input id="sn" type="range" min="1" max="100" step="1">
+    <div id="lv"><div id="lvb"></div></div>
+  </div>
+  <div class="row">
+    <button data-k="1800" data-b="25">Свічка</button>
+    <button data-k="2700" data-b="55">Тепла</button>
+    <button data-k="4000" data-b="80">Нейтральна</button>
+    <button data-k="6000" data-b="100">Денна</button>
+  </div>
+</div>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var T = $('t'), B = $('b'), tv = $('tv'), bv = $('bv');
+  var panel = $('panel'), bg = $('bg'), dim = $('dim'), clock = $('clock'), tw = $('tw');
+  var st = { k: 2700, b: 60, m: 'white', fl: false, ck: false, cl: false, sn: 60 };
+  try {
+    var s = JSON.parse(localStorage.getItem('lamp2') || 'null');
+    if (s) { for (var key in st) if (s[key] !== undefined) st[key] = s[key]; }
+  } catch (e) { }
+
+  var role = /role=display/.test(location.search) ? 'display' : (/role=remote/.test(location.search) ? 'remote' : 'local');
+  var pushTimer = null;
+  function push() {
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(function () {
+      try { fetch('/state', { method: 'POST', body: JSON.stringify(st) }); } catch (e) { }
+    }, 80);
+  }
+  function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+  function kelvin(k) {
+    var t = k / 100, r, g, b;
+    r = t <= 66 ? 255 : 329.698727446 * Math.pow(t - 60, -0.1332047592);
+    g = t <= 66 ? 99.4708025861 * Math.log(t) - 161.1195681661 : 288.1221695283 * Math.pow(t - 60, -0.0755148492);
+    b = t >= 66 ? 255 : (t <= 19 ? 0 : 138.5177312231 * Math.log(t - 10) - 305.0447927307);
+    return [clamp(r, 0, 255), clamp(g, 0, 255), clamp(b, 0, 255)];
+  }
+  function hsl(h, s, l) {
+    h = ((h % 360) + 360) % 360; s /= 100; l /= 100;
+    var a = s * Math.min(l, 1 - l);
+    function f(n) { var k = (n + h / 30) % 12; return l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1)); }
+    return [f(0) * 255, f(8) * 255, f(4) * 255];
+  }
+  function mix(A, Bc, t) { return [A[0] + (Bc[0] - A[0]) * t, A[1] + (Bc[1] - A[1]) * t, A[2] + (Bc[2] - A[2]) * t]; }
+  function css(c) { return 'rgb(' + Math.round(c[0]) + ',' + Math.round(c[1]) + ',' + Math.round(c[2]) + ')'; }
+  function cycle(pal, p) {
+    var n = pal.length, x = (p % 1) * n, i = Math.floor(x), f = x - i;
+    f = f * f * (3 - 2 * f);
+    return mix(pal[i], pal[(i + 1) % n], f);
+  }
+
+  var SUN = [[255, 140, 40], [240, 80, 50], [200, 50, 110], [120, 50, 150], [50, 60, 140], [200, 70, 90]];
+  var smooth = 0.5, target = 0.5, lastT = 0;
+
+  function frame(now) {
+    var t = now / 1000, col, f = st.b / 100, ckCol;
+    if (st.fl) {
+      if (t - lastT > 0.07) { target = Math.random(); lastT = t; }
+      smooth += (target - smooth) * 0.25;
+      f *= 0.86 + 0.14 * smooth + 0.03 * Math.sin(t * 7);
+    }
+    var bgCss;
+    if (st.m === 'white') {
+      var k = st.k;
+      if (st.fl) k = Math.max(1200, k - 250 * (1 - smooth));
+      col = kelvin(k); bgCss = css(col);
+    } else if (st.m === 'pastel') {
+      col = hsl(t * 6, 65, 80); bgCss = css(col);
+    } else if (st.m === 'sunset') {
+      col = cycle(SUN, t / 90);
+      var c2 = cycle(SUN, t / 90 + 0.18);
+      bgCss = 'linear-gradient(180deg,' + css(c2) + ',' + css(col) + ')';
+    } else {
+      var h1 = 150 + 40 * Math.sin(t / 7), h2 = 200 + 60 * Math.sin(t / 11 + 1), h3 = 280 + 40 * Math.sin(t / 9 + 2);
+      var ang = 160 + 25 * Math.sin(t / 13);
+      col = hsl(h1, 80, 50);
+      bgCss = 'linear-gradient(' + ang + 'deg,' + css(hsl(h1, 85, 55)) + ',' + css(hsl(h2, 80, 50)) + ' 50%,' + css(hsl(h3, 70, 40)) + ')';
+    }
+    bg.style.background = bgCss;
+    dim.style.opacity = 1 - f;
+    if (st.ck) {
+      var d = new Date(), hh = d.getHours(), mm = d.getMinutes();
+      clock.textContent = (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+      var lum = (0.3 * col[0] + 0.59 * col[1] + 0.11 * col[2]) / 255 * f;
+      clock.style.color = lum > 0.3 ? 'rgba(0,0,0,0.35)' : 'rgba(255,190,130,0.28)';
+      clock.style.display = 'flex';
+      clock.style.fontSize = Math.round(Math.min(innerWidth * 0.3, innerHeight * 0.2)) + 'px';
+    } else {
+      clock.style.display = 'none';
+    }
+    requestAnimationFrame(frame);
+  }
+
+  function ui() {
+    tv.textContent = st.k + ' K';
+    bv.textContent = st.b + '%';
+    T.value = st.k; B.value = st.b;
+    var ms = $('modes').children;
+    for (var i = 0; i < ms.length; i++) ms[i].className = ms[i].getAttribute('data-m') === st.m ? 'on' : '';
+    $('fl').className = st.fl ? 'on' : '';
+    $('ck').className = st.ck ? 'on' : '';
+    tw.className = st.m === 'white' ? '' : 'off';
+    $('cl').className = st.cl ? 'on' : '';
+    $('sn').value = st.sn; $('snv').textContent = st.sn;
+    $('cw').style.display = st.cl ? '' : 'none';
+    try { localStorage.setItem('lamp2', JSON.stringify(st)); } catch (e) { }
+    if (role === 'remote') push();
+  }
+  /* ---- хлопок: двічі плеснути, щоб вимкнути/увімкнути світло ---- */
+  var offEl = $('off'), isOff = false;
+  function setOff(v) {
+    isOff = v;
+    offEl.style.display = v ? 'block' : 'none';
+    if (v) panel.classList.add('hide');
+  }
+  var ac = null, an = null, buf = null, clapTimer = null, started = false;
+  var avg = 0.01, lastPeak = 0, hot = false;
+  function startClap() {
+    if (started) { if (ac && ac.state === 'suspended') ac.resume(); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Мікрофон недоступний: потрібна захищена адреса (див. інструкцію).'); return;
+    }
+    started = true;
+    navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }).then(function (stream) {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      ac = new AC();
+      var src = ac.createMediaStreamSource(stream);
+      an = ac.createAnalyser(); an.fftSize = 1024;
+      src.connect(an);
+      buf = new Float32Array(an.fftSize);
+      if (ac.state === 'suspended') ac.resume();
+      clapTimer = setInterval(listen, 25);
+    }).catch(function () { started = false; });
+  }
+  function stopClap() {
+    clearInterval(clapTimer); clapTimer = null;
+    try { if (ac) ac.close(); } catch (e) { }
+    ac = null; started = false;
+    $('lvb').style.width = '0';
+  }
+  function listen() {
+    an.getFloatTimeDomainData(buf);
+    var sum = 0, i;
+    for (i = 0; i < buf.length; i++) sum += buf[i] * buf[i];
+    var rms = Math.sqrt(sum / buf.length);
+    var thr = 0.02 + 0.3 * (1 - st.sn / 100);
+    $('lvb').style.width = Math.min(100, rms / (thr * 1.5) * 100) + '%';
+    var now = performance.now();
+    var peak = rms > thr && rms > avg * 3;
+    if (peak && !hot && now - lastPeak > 120) {
+      hot = true;
+      if (clapArmed && now - lastPeak < 800) { clapArmed = false; setOff(!isOff); }
+      else { clapArmed = true; }
+      lastPeak = now;
+    }
+    if (!peak && rms < thr * 0.5) hot = false;
+    if (clapArmed && now - lastPeak > 800) clapArmed = false;
+    avg = avg * 0.98 + rms * 0.02;
+  }
+  var clapArmed = false;
+  var timer = null;
+  function show() {
+    panel.classList.remove('hide');
+    clearTimeout(timer);
+    timer = setTimeout(function () { panel.classList.add('hide'); }, 6000);
+  }
+  T.addEventListener('input', function () { st.k = +T.value; st.m = 'white'; ui(); show(); });
+  B.addEventListener('input', function () { st.b = +B.value; ui(); show(); });
+  var ms = $('modes').children, i;
+  for (i = 0; i < ms.length; i++) ms[i].addEventListener('click', function (e) {
+    st.m = e.currentTarget.getAttribute('data-m'); ui(); show();
+  });
+  $('fl').addEventListener('click', function () { st.fl = !st.fl; ui(); show(); });
+  $('ck').addEventListener('click', function () { st.ck = !st.ck; ui(); show(); });
+  $('cl').addEventListener('click', function () {
+    st.cl = !st.cl;
+    if (st.cl) startClap(); else { stopClap(); setOff(false); }
+    ui(); show();
+  });
+  $('sn').addEventListener('input', function () { st.sn = +$('sn').value; ui(); show(); });
+  var pr = document.querySelectorAll('button[data-k]');
+  for (i = 0; i < pr.length; i++) pr[i].addEventListener('click', function (e) {
+    st.k = +e.currentTarget.getAttribute('data-k');
+    st.b = +e.currentTarget.getAttribute('data-b');
+    st.m = 'white'; ui(); show();
+  });
+  document.body.addEventListener('click', function (e) {
+    if (isOff) { setOff(false); return; }
+    if (panel.contains(e.target)) return;
+    if (panel.classList.contains('hide')) show(); else panel.classList.add('hide');
+  });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'ArrowUp') st.b = Math.min(100, st.b + 2);
+    else if (e.key === 'ArrowDown') st.b = Math.max(1, st.b - 2);
+    else if (e.key === 'ArrowRight') { st.k = Math.min(6500, st.k + 100); st.m = 'white'; }
+    else if (e.key === 'ArrowLeft') { st.k = Math.max(1500, st.k - 100); st.m = 'white'; }
+    else return;
+    ui();
+  });
+  var first = true;
+  document.addEventListener('click', function () {
+    if (st.cl) startClap();
+    if (!first) return; first = false;
+    var el = document.documentElement;
+    try { (el.requestFullscreen || el.webkitRequestFullscreen || function () { }).call(el); } catch (e) { }
+  });
+  ui(); show();
+  if (st.cl) startClap();
+  if (role === 'display') {
+    panel.style.display = 'none';
+    setInterval(function () {
+      fetch('/state', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (n) {
+        if (n && n.k) { for (var key in st) if (n[key] !== undefined) st[key] = n[key]; ui(); }
+      }).catch(function () { });
+    }, 1000);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
