@@ -52,6 +52,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     <label><span>Чутливість хлопка</span><span id="snv"></span></label>
     <input id="sn" type="range" min="1" max="100" step="1">
     <div id="lv"><div id="lvb"></div></div>
+    <div id="ms" style="font-size:12px;opacity:.85"></div>
   </div>
   <div class="row">
     <button data-k="1800" data-b="25">Свічка</button>
@@ -173,6 +174,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
       alert('Мікрофон недоступний: потрібна захищена адреса (див. інструкцію).'); return;
     }
     started = true;
+    $('ms').textContent = 'запит мікрофона…';
     navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } }).then(function (stream) {
       var AC = window.AudioContext || window.webkitAudioContext;
       ac = new AC();
@@ -182,7 +184,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
       buf = new Float32Array(an.fftSize);
       if (ac.state === 'suspended') ac.resume();
       clapTimer = setInterval(listen, 25);
-    }).catch(function () { started = false; });
+    }).catch(function (err) { started = false; $('ms').textContent = 'помилка мікрофона: ' + (err && err.name); });
   }
   function stopClap() {
     clearInterval(clapTimer); clapTimer = null;
@@ -198,6 +200,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     var thr = 0.02 + 0.3 * (1 - st.sn / 100);
     $('lvb').style.width = Math.min(100, rms / (thr * 1.5) * 100) + '%';
     var now = performance.now();
+    if (!listen.t || now - listen.t > 200) { listen.t = now; $('ms').textContent = ac.state + ' | рівень ' + rms.toFixed(3) + ' | поріг ' + thr.toFixed(3); }
     var peak = rms > thr && rms > avg * 3 && rms > prevRms * 1.6;
     prevRms = rms;
     if (peak && now - lastPeak > 120) {
