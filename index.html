@@ -166,7 +166,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     if (v) panel.classList.add('hide');
   }
   var ac = null, an = null, buf = null, clapTimer = null, started = false;
-  var avg = 0.01, lastPeak = 0, hot = false;
+  var avg = 0.01, lastPeak = 0, prevRms = 0;
   function startClap() {
     if (started) { if (ac && ac.state === 'suspended') ac.resume(); return; }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -198,14 +198,13 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     var thr = 0.02 + 0.3 * (1 - st.sn / 100);
     $('lvb').style.width = Math.min(100, rms / (thr * 1.5) * 100) + '%';
     var now = performance.now();
-    var peak = rms > thr && rms > avg * 3;
-    if (peak && !hot && now - lastPeak > 120) {
-      hot = true;
+    var peak = rms > thr && rms > avg * 3 && rms > prevRms * 1.6;
+    prevRms = rms;
+    if (peak && now - lastPeak > 120) {
       if (clapArmed && now - lastPeak < 800) { clapArmed = false; setOff(!isOff); }
       else { clapArmed = true; }
       lastPeak = now;
     }
-    if (!peak && rms < thr * 0.5) hot = false;
     if (clapArmed && now - lastPeak > 800) clapArmed = false;
     avg = avg * 0.98 + rms * 0.02;
   }
