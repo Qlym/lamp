@@ -47,7 +47,9 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     <button id="fl">Живий вогонь</button>
     <button id="ck">Годинник</button>
     <button id="cl">Хлопок</button>
+    <button id="vc">Голос</button>
   </div>
+  <div id="vs" style="font-size:12px;opacity:.85"></div>
   <div id="cw">
     <label><span>Чутливість хлопка</span><span id="snv"></span></label>
     <input id="sn" type="range" min="1" max="100" step="1">
@@ -66,7 +68,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
   var $ = function (id) { return document.getElementById(id); };
   var T = $('t'), B = $('b'), tv = $('tv'), bv = $('bv');
   var panel = $('panel'), bg = $('bg'), dim = $('dim'), clock = $('clock'), tw = $('tw');
-  var st = { k: 2700, b: 60, m: 'white', fl: false, ck: false, cl: false, sn: 60 };
+  var st = { k: 2700, b: 60, m: 'white', fl: false, ck: false, cl: false, vc: false, sn: 60 };
   try {
     var s = JSON.parse(localStorage.getItem('lamp2') || 'null');
     if (s) { for (var key in st) if (s[key] !== undefined) st[key] = s[key]; }
@@ -154,6 +156,7 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     $('ck').className = st.ck ? 'on' : '';
     tw.className = st.m === 'white' ? '' : 'off';
     $('cl').className = st.cl ? 'on' : '';
+    $('vc').className = st.vc ? 'on' : '';
     $('sn').value = st.sn; $('snv').textContent = st.sn;
     $('cw').style.display = st.cl ? '' : 'none';
     try { localStorage.setItem('lamp2', JSON.stringify(st)); } catch (e) { }
@@ -211,6 +214,54 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     if (clapArmed && now - lastPeak > 800) clapArmed = false;
     avg = avg * 0.98 + rms * 0.02;
   }
+  /* ---- голос: "лампа on/off", "лампа вимкни/увімкни" ---- */
+  function parseCmd(t) {
+    t = t.toLowerCase();
+    if (t.indexOf('ламп') < 0 && t.indexOf('lamp') < 0) return null;
+    var w = t.replace(/[.,!?]/g, ' ').split(/\s+/), i, x;
+    var has = function (p) { for (i = 0; i < w.length; i++) { if (w[i].indexOf(p) === 0) return true; } return false; };
+    var eq = function (p) { return w.indexOf(p) >= 0; };
+    if (eq('off') || eq('оф') || eq('офф') || has('вимк') || has('вимик') || has('згас') || has('гаси') || has('погас')) return 'off';
+    if (eq('on') || eq('он') || has('увімк') || has('ввімк') || has('вімк') || has('вмик') || has('ввімкн') || has('засвіт')) return 'on';
+    if (has('яскравіш')) return 'up';
+    if (has('тьмяніш') || has('темніш')) return 'down';
+    if (has('тепліш')) return 'warm';
+    if (has('холодніш')) return 'cold';
+    return null;
+  }
+  var rec = null, vcWant = false, lastCmd = 0;
+  function doCmd(c) {
+    if (c === 'off') setOff(true);
+    else if (c === 'on') setOff(false);
+    else if (c === 'up') st.b = Math.min(100, st.b + 15);
+    else if (c === 'down') st.b = Math.max(1, st.b - 15);
+    else if (c === 'warm') { st.k = Math.max(1500, st.k - 500); st.m = 'white'; }
+    else if (c === 'cold') { st.k = Math.min(6500, st.k + 500); st.m = 'white'; }
+    ui();
+  }
+  function startVoice() {
+    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { $('vs').textContent = 'голос не підтримується цим браузером'; return; }
+    if (vcWant) return;
+    vcWant = true;
+    rec = new SR(); rec.lang = 'uk-UA'; rec.continuous = true; rec.interimResults = true;
+    rec.onresult = function (e) {
+      var txt = '';
+      for (var j = e.resultIndex; j < e.results.length; j++) txt += e.results[j][0].transcript + ' ';
+      var c = parseCmd(txt);
+      $('vs').textContent = 'чую: ' + txt + (c ? ' → ' + c : '');
+      var now = performance.now();
+      if (c && now - lastCmd > 1500) { lastCmd = now; doCmd(c); }
+    };
+    rec.onerror = function (e) { $('vs').textContent = 'помилка голосу: ' + e.error; };
+    rec.onend = function () { if (vcWant) setTimeout(function () { try { rec.start(); } catch (e) { } }, 300); };
+    try { rec.start(); $('vs').textContent = 'слухаю…'; } catch (e) { }
+  }
+  function stopVoice() {
+    vcWant = false;
+    try { if (rec) rec.stop(); } catch (e) { }
+    $('vs').textContent = '';
+  }
   var clapArmed = false;
   var timer = null;
   function show() {
@@ -232,6 +283,11 @@ button.on{background:rgba(255,255,255,.5);color:#000}
     ui(); show();
   });
   $('sn').addEventListener('input', function () { st.sn = +$('sn').value; ui(); show(); });
+  $('vc').addEventListener('click', function () {
+    st.vc = !st.vc;
+    if (st.vc) startVoice(); else stopVoice();
+    ui(); show();
+  });
   var pr = document.querySelectorAll('button[data-k]');
   for (i = 0; i < pr.length; i++) pr[i].addEventListener('click', function (e) {
     st.k = +e.currentTarget.getAttribute('data-k');
@@ -254,12 +310,14 @@ button.on{background:rgba(255,255,255,.5);color:#000}
   var first = true;
   document.addEventListener('click', function () {
     if (st.cl) startClap();
+    if (st.vc && !vcWant) startVoice();
     if (!first) return; first = false;
     var el = document.documentElement;
     try { (el.requestFullscreen || el.webkitRequestFullscreen || function () { }).call(el); } catch (e) { }
   });
   ui(); show();
   if (st.cl) startClap();
+  if (st.vc) startVoice();
   if (role === 'display') {
     panel.style.display = 'none';
     setInterval(function () {
